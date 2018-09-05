@@ -232,21 +232,18 @@ data class PTUI(val g: Game) : UserInterface() {
     override fun reportNothingHappened() {
         println("...But nothing happened.")
     }
-}
 
+    override fun reportPlayerLoss(player: Player) {
+        println(asColor(cyan, "$player has been defeated."))
+    }
 
-fun main(args: Array<String>) {
-
-    // terminal color constants
-    val BOLD   = "\u001B[1"
-    val foreColors = mapOf(
-            "red" to "$BOLD;31m",
-            "green" to "$BOLD;32m",
-            "yellow" to "$BOLD;33m",
-            "blue" to "$BOLD;34m",
-            "magenta" to "$BOLD;35m",
-            "cyan" to "$BOLD;36m"
-    )
-
-    println("$BOLD${foreColors.get("cyan")}test")
+    override fun reportScores() {
+        println("\nCurrent Scores:")
+        g.scores.keys.sortedBy {
+            g.scores[it]
+        }.reversed().forEach {
+            println("$it: ${g.scores[it]}")
+        }
+        println()
+    }
 }

@@ -35,4 +35,8 @@ abstract class UserInterface {
     abstract fun revealAllHands()
 
     abstract fun reportNothingHappened()
+
+    abstract fun reportPlayerLoss(player: Player)
+
+    abstract fun reportScores()
 }

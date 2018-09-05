@@ -7,6 +7,8 @@ data class Game(var players : Set<Player> = ArrayList<Player>().toSet()) {
     var gameRunning = false
     var discardPile = ArrayList<Card>()
 
+    val scores: HashMap<Player, Int> = hashMapOf()
+
     fun addPlayer(newPlayer: Player) {
         val newRoster = players.toMutableSet()
         newRoster.add(newPlayer)
@@ -18,7 +20,6 @@ data class Game(var players : Set<Player> = ArrayList<Player>().toSet()) {
         ui.instantiate()
 
         deck.shuffleDeck()
-        discardPile = ArrayList()
 
         if(getNumberOfPlayers() <= 2) {
             deck.burnCards(3)
@@ -27,9 +28,12 @@ data class Game(var players : Set<Player> = ArrayList<Player>().toSet()) {
         }
 
         players.forEach {
+            it.discardHand(false)
             it.drawCard()
             it.hasLost = false
         }
+
+        discardPile = ArrayList()
 
         gameRunning = true
 
@@ -51,12 +55,18 @@ data class Game(var players : Set<Player> = ArrayList<Player>().toSet()) {
             }
         }
 
+        var victor = getActivePlayers()[0]
+
         if( getActivePlayers().size > 1 ) {
             ui.revealAllHands()
-            ui.reportVictory(getActivePlayers().sortedBy {
+            victor = getActivePlayers().sortedBy {
                 -1 * it.hand[0].value
-            }[0])
+            }[0]
         }
+        ui.reportVictory(victor)
+        scores[victor] = 1 + (scores[victor]  ?: 0)
+
+        ui.reportScores()
     }
 
     fun endGame() {
@@ -66,6 +76,10 @@ data class Game(var players : Set<Player> = ArrayList<Player>().toSet()) {
     fun updateGameState(currentTurnPlayer: Player, cardPlayed: Card) {
         players.forEach {
             if( it.hand.size == 0 ){
+                // if the player has lost, but the flag hasn't been set yet (so its the first update since they lost)
+                if( !it.hasLost ) {
+                    ui.reportPlayerLoss(it)
+                }
                 it.hasLost = true
             }
             it.observePlay(currentTurnPlayer, cardPlayed)
@@ -74,7 +88,6 @@ data class Game(var players : Set<Player> = ArrayList<Player>().toSet()) {
         if( players.sumBy {if (it.hasLost) 0 else 1 } <= 1 ) {
             players.forEach {
                 if( !it.hasLost ) {
-                    ui.reportVictory(it)
                     endGame()
                 }
             }
@@ -103,6 +116,7 @@ fun main(args: Array<String>) {
     var game = Game()
 
     var p1 = HumanPlayer(game, "Human")
+    var p2 = HumanPlayer(game, "Human2")
     var cpu1 = CPUPlayer(game, "CPU1")
     var cpu2 = CPUPlayer(game, "CPU2")
 
@@ -110,7 +124,7 @@ fun main(args: Array<String>) {
     game.addPlayer(cpu1)
     game.addPlayer(cpu2)
 
-    game.startGame()
-
-
+    while( true ) {
+        game.startGame()
+    }
 }

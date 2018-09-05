@@ -17,6 +17,14 @@ data class Card(val value: Int, val name: String, val text: String, var abbrev: 
     fun play(game: Game, player: Player, target: Player?) {
         game.ui.displayCardPlay(player, this, target, null)
 
+        // If other players knew about this card, they no longer know it's in the player's hand
+        player.flagCardAsUnknown()
+
+        // Clear suspicions of having this card for other players
+        game.players.forEach {
+            it.clearSuspicion(player, this)
+        }
+
         // Do not play the card if the target was invalid
         if( !isValidTarget(player, target) ) {
             game.ui.reportNothingHappened()
@@ -30,6 +38,10 @@ data class Card(val value: Int, val name: String, val text: String, var abbrev: 
                         val success = target.hand[0] == guess
                         if (success) {
                             target.discardHand()
+                        } else {
+                            game.players.forEach {
+                                it.negateAllSuspicion(target, guess)
+                            }
                         }
                         game.ui.displayGuardGuess(player, target, guess, success)
                     }
@@ -47,10 +59,33 @@ data class Card(val value: Int, val name: String, val text: String, var abbrev: 
                         game.ui.reportNothingHappened()
                     } else {
                         game.ui.reportCompareHands(player, target)
-                        if (player.hand[0].value > target.hand[0].value) {
+                        val playerHandValue = player.hand[0].value
+                        val targetHandValue = target.hand[0].value
+                        if( playerHandValue > targetHandValue ) {
                             target.discardHand()
-                        } else if (player.hand[0].value < target.hand[0].value) {
+                            Deck.getAllCardTypes().forEach {
+                                val thisCard = it
+                                if( thisCard.value > targetHandValue ) {
+                                    game.players.forEach {
+                                        it.addSuspicion(player, thisCard, 100F)
+                                    }
+                                }
+                            }
+                        } else if( playerHandValue < targetHandValue ) {
                             player.discardHand()
+                            Deck.getAllCardTypes().forEach {
+                                val thisCard = it
+                                if( thisCard.value > playerHandValue ) {
+                                    game.players.forEach {
+                                        it.addSuspicion(target, thisCard, 100F)
+                                    }
+                                }
+                            }
+                        } else {
+                            game.ui.reportNothingHappened()
+                            player.registerCardKnowledge(target, target.hand[0])
+                            target.registerCardKnowledge(player, player.hand[0])
+                            // TODO if baron was played by player, and nothing happened, and there is only 1 possible non-guard card that could cause this, then register knowledge
                         }
                     }
                 }
@@ -77,9 +112,18 @@ data class Card(val value: Int, val name: String, val text: String, var abbrev: 
                         target.hand[0] = player.hand[0]
                         player.hand[0] = targetCard
                         player.registerCardKnowledge(target, target.hand[0])
+                        target.registerCardKnowledge(player, player.hand[0])
+                        // TODO switch hand knowledge for other players as well
                     }
                 }
                 7 -> { // Countess
+                    // make other players suspicious of you the player having 5, 6, or 8
+                    listOf(5,6,8).forEach {
+                        val curValue = it
+                        game.players.forEach {
+                            it.addSuspicion(player, getCardByValue(curValue)!!, 1F)
+                        }
+                    }
                 }
                 8 -> { // Princess
                     player.discardHand() // same as lose the game

@@ -1,11 +1,10 @@
 package LoveLetter
 
+import java.util.concurrent.ThreadLocalRandom
+
 class CPUPlayer(g: Game, i: String) : Player(g, i) {
 
     val showHand = false
-    val thinkDur = 2000L
-
-    var playerKnowledge: HashMap<Player, Card?> = hashMapOf()
 
     // Value for play estimation
     private val MAX_VALUE = 100F
@@ -15,16 +14,14 @@ class CPUPlayer(g: Game, i: String) : Player(g, i) {
     override fun playCard() {
         game.ui.startPlayerTurn(this)
 
-        //Thread.sleep(thinkDur)
         readLine()
 
-        val thisPlay = getplay()
+        val thisPlay = getPlay()
 
         hand.remove(thisPlay.second)
 
         thisPlay.second.play(game, this, if(thisPlay.second.requiresTarget()) thisPlay.first else null)
 
-        //Thread.sleep(thinkDur)
         readLine()
 
         game.ui.endPlayerTurn(this)
@@ -43,13 +40,19 @@ class CPUPlayer(g: Game, i: String) : Player(g, i) {
             remainingCards[otherCard] = remainingCards[otherCard]!! - 1
         }
 
+        // Sorted by number of remaining cards, and then shuffle randomly
         return remainingCards.keys.sortedBy {
-            -1 * remainingCards[it]!!
-        }[0]
-    }
+            // TODO prioritize guessing cards that the player does not want the target to have in hand
+            // i.e. If they have 2 guards, they do not want the target to have a baron because that card instantly kills the player
+            //      If their hand is less than avg remaining, then prioritize baron
+            //      if their hand is princess, then prioritize prince
 
-    override fun registerCardKnowledge(player: Player, card: Card) {
-        playerKnowledge[player] = card
+            val remainingCardWeight = remainingCards[it]!! * 100
+            val suspicionWeight: Float = getSuspicion(target, it) * 20
+            val randomness = ThreadLocalRandom.current().nextInt(0, 10)
+
+            -1 * (remainingCardWeight + suspicionWeight + randomness)
+        }[0]
     }
 
     override fun observePlay(player: Player, card: Card) {
@@ -58,17 +61,7 @@ class CPUPlayer(g: Game, i: String) : Player(g, i) {
         }
     }
 
-    private fun getTarget(playedCard: Card) : Player? {
-        val validTargets = game.players.filter {
-            playedCard.isValidTarget(this, it)
-        }.shuffled()
-        if (validTargets.size > 0) {
-            return validTargets.take(1)[0]
-        }
-        return null
-    }
-
-    private fun getplay() : Pair<Player, Card> {
+    private fun getPlay() : Pair<Player, Card> {
         // Make a HashMap of all possible plays
         val allPlays = HashMap<Pair<Player, Card>, Float>()
         game.players.forEach {
@@ -91,6 +84,23 @@ class CPUPlayer(g: Game, i: String) : Player(g, i) {
     }
 
     private fun getPlayValue(target: Player, card: Card, targetHasProtection: Boolean) : Float {
+
+        // Play countess if they must
+        if( card.value == 7 && mustPlayCountess() ) {
+            return Float.MAX_VALUE
+        }
+
+        // you lose, idiot
+        if( card.value == 8 ) {
+            return NEG_VALUE
+        }
+
+        var otherMods = 0
+
+        if( knownCard == card ) {
+            otherMods++
+        }
+
         val targetHand = playerKnowledge[target]
 
         // If you have two cards that do the same thing, play the one with the lower value
@@ -100,46 +110,47 @@ class CPUPlayer(g: Game, i: String) : Player(g, i) {
 
         if( targetHasProtection ) {
             when (card.value) {
-                1 -> return thisCard_NO_VALUE
-                2 -> return thisCard_NO_VALUE
-                3 -> return thisCard_NO_VALUE
-                5 -> return thisCard_NO_VALUE
-                6 -> return thisCard_NO_VALUE
+                // Only allowed to do these if no other valid moves
+                1 -> return thisCard_NEG_VALUE-50 + otherMods
+                2 -> return thisCard_NEG_VALUE-50 + otherMods
+                3 -> return thisCard_NEG_VALUE-50 + otherMods
+                5 -> return thisCard_NEG_VALUE-50 + otherMods
+                6 -> return thisCard_NEG_VALUE-50 + otherMods
             }
         }
         if( targetHand != null ) { // If the AI knows this player's hand
             when (card.value) {
                 1 -> { // if player's hand is not guard
-                    return if( targetHand.value != 1 ) thisCard_MAX_VALUE else thisCard_NO_VALUE
+                    return if( targetHand.value != 1 ) thisCard_MAX_VALUE + otherMods else thisCard_NO_VALUE + otherMods
                 }
-                2 -> return thisCard_NO_VALUE // you already know their hand
+                2 -> return thisCard_NO_VALUE + otherMods // you already know their hand
                 3 -> {
                     val playersOtherCard = getOtherCardInHand(Card.getCardByValue(3))!!
                     if( playersOtherCard.value > targetHand.value ) {
-                        return thisCard_MAX_VALUE-1 // Can beat another player (minus 1 because it gives off info)
+                        return thisCard_MAX_VALUE-1 + otherMods// Can beat another player (minus 1 because it gives off info)
                     } else if ( playersOtherCard.value == targetHand.value ) {
-                        return thisCard_NO_VALUE-1 // Ties other plauer (minus 1 because it shows them your hand)
+                        return thisCard_NO_VALUE-1  + otherMods// Ties other plauer (minus 1 because it shows them your hand)
                     }
                     return thisCard_NEG_VALUE // You lose the game
                 }
                 5 -> return if( targetHand.value == 8 && target != this ) thisCard_MAX_VALUE else thisCard_NO_VALUE // if non-self target has princess it should be discarded
-                6 -> return thisCard_NO_VALUE-1 // TODO Figure out how to determine if the AI wants the player to discard their card
+                6 -> return thisCard_NO_VALUE-1 + otherMods // TODO If the player's hand has a high value, and the game is near an end, then you want that high value card
             }
         } else { // If the AI does not know this player's hand
             when (card.value) {
-                1 -> return thisCard_NO_VALUE+1 // Shot in the dark, better than no value
-                2 -> return thisCard_NO_VALUE+2 // Figuring out info is better than a shot in the dark
-                3 -> return thisCard_NO_VALUE+
-                        getOtherCardInHand(Card.getCardByValue(3))!!.value -
-                        calculateRemainingAverageValue() // Determine odds of winning off of blind baron play
-                4 -> return thisCard_NO_VALUE+3 // Always play it safe unless you can go for a kill
-                5 -> return thisCard_NO_VALUE-1 // This is just a bad play most of the time
-                6 -> return thisCard_NO_VALUE-5 // This is almost always a terrible play
-                7 -> return thisCard_NO_VALUE-2 // pretty bad
-                8 -> return thisCard_NEG_VALUE  // you lose, idiot
+                // TODO Increase guard value if player suspects a card in the player's hand
+                1 -> return thisCard_NO_VALUE+1 + otherMods // Shot in the dark, better than no value
+                2 -> return thisCard_NO_VALUE+2 + otherMods // Figuring out info is better than a shot in the dark
+                3 -> return thisCard_NO_VALUE+ // TODO make it better to baron someone whose hand is unknown if the other card in hand is guaranteed to be the highest in the game
+                        getOtherCardInHand(Card.getCardByValue(3))!!.value - // TODO account for card suspicion
+                        calculateRemainingAverageValue() + otherMods // Determine odds of winning off of blind baron play
+                4 -> return thisCard_NO_VALUE+3 + otherMods // Always play it safe unless you can go for a kill
+                5 -> return thisCard_NO_VALUE-1 + otherMods // This is just a bad play most of the time
+                6 -> return thisCard_NO_VALUE-5 + otherMods // This is almost always a terrible play
+                7 -> return thisCard_NO_VALUE-2 + otherMods // pretty bad
             }
         }
-        return thisCard_NO_VALUE
+        return thisCard_NO_VALUE + otherMods
     }
 
     /**
